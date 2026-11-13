@@ -1,0 +1,23 @@
+{
+    "name": "amanank/filament-access-inspector",
+    "description": "Inspect effective viewAny access to Filament resources.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "laravel/framework": "^10.0|^11.0|^12.0",
+        "filament/filament": "^3.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Amanank\\FilamentAccessInspector\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Amanank\\FilamentAccessInspector\\AccessInspectorServiceProvider"
+            ]
+        }
+    }
+}
