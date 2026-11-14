@@ -4,6 +4,8 @@ A Filament 3 package for inspecting per-user `viewAny` authorization on resource
 
 The audit runs in a hidden Livewire component at the end of the page, outside Filament's persistent topbar. The shield stays disabled until the result arrives. The loader stores the rendered result in a hidden element and copies its HTML into the dropdown through a browser event. Refresh uses the same loader, so the dropdown stays open while its content updates. If no result arrives within 30 seconds, the dropdown offers a retry.
 
+After a completed audit, the shield badge shows the number of confirmed allowed users for the current page, including zero. It uses the same cached or refreshed audit as the dropdown and excludes indeterminate users and relation-manager results. While loading the count is hidden; if unavailable an exclamation badge and tooltip replace it.
+
 ## Current scope
 
 - Supports resource List pages and evaluates each configured user through `Gate::forUser($user)->inspect('viewAny', $resourceModel)`.
@@ -42,5 +44,6 @@ php artisan vendor:publish --tag=filament-access-inspector-config
 - `permission`: permission checked on the active panel guard; defaults to `inspect_access`.
 - `user_model`: model to audit; defaults to the model in `auth.providers.users.model`.
 - `cache_ttl`: completed-result cache duration in minutes; defaults to 1440 (24 hours).
+- `list_permissions`: optional resource class to permission name map for custom policies. By default, the Shield permission identifier is used with the `view_any_` prefix. These names filter supporting evidence; they do not determine the access result.
 
 The cache is separated by panel, resource, tenant, inspector, and user model. Use **Recheck now** to bypass it. Permission cache state is left untouched.

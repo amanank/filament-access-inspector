@@ -118,7 +118,13 @@ class AccessInspector extends Component
 
         $this->skipRender();
 
-        $this->dispatch('access-inspector-result', html: $html, status: $audit['status'], pageUrl: $this->pageUrl);
+        $this->dispatch(
+            'access-inspector-result',
+            html: $html,
+            status: $audit['status'],
+            pageUrl: $this->pageUrl,
+            allowedCount: $audit['status'] === 'completed' ? count($audit['users']) : null,
+        );
     }
 
     public function render()

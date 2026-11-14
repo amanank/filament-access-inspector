@@ -33,7 +33,7 @@ class ListAccessAuditor
         }
 
         $cacheKey = implode(':', [
-            'filament-access-inspector:v2',
+            'filament-access-inspector:v3',
             $panel?->getId() ?? 'panel',
             $resource,
             'viewAny',
@@ -48,6 +48,7 @@ class ListAccessAuditor
 
         $users = [];
         $unknown = [];
+        $expectedPermission = $this->expectedListPermission($resource);
         $customResourceCheck = (new ReflectionMethod($resource, 'canViewAny'))->getDeclaringClass()->getName() !== \Filament\Resources\Resource::class;
 
         foreach ($model::query()->get() as $user) {
@@ -78,7 +79,7 @@ class ListAccessAuditor
                         'id' => $user->getKey(),
                         'name' => $user->name ?? (string) $user->getKey(),
                         'reason' => $reason,
-                        'evidence' => $this->accessEvidence($user, $resource::getModel(), $message, $hasSuperAdminRole && $superAdminBypassConfigured),
+                        'evidence' => $this->accessEvidence($user, $expectedPermission, $message, $hasSuperAdminRole && $superAdminBypassConfigured),
                     ];
                 }
             } catch (AuthorizationException $exception) {
@@ -141,51 +142,48 @@ class ListAccessAuditor
         ];
     }
 
-    private function accessEvidence(object $user, string $model, string $decisionMessage, bool $superAdminBypass): array
+    private function expectedListPermission(string $resource): ?string
     {
-        $evidence = ["Laravel Gate allowed viewAny for {$model}."];
+        $configured = config('filament-access-inspector.list_permissions', []);
+        if (isset($configured[$resource])) {
+            return $configured[$resource];
+        }
+
+        foreach (['Amanank\\FilamentShield\\Facades\\FilamentShield', 'BezhanSalleh\\FilamentShield\\Facades\\FilamentShield'] as $shield) {
+            if (class_exists($shield)) {
+                return 'view_any_' . $shield::getPermissionIdentifier($resource);
+            }
+        }
+
+        return null;
+    }
+
+    private function accessEvidence(object $user, ?string $permission, string $decisionMessage, bool $superAdminBypass): array
+    {
+        $evidence = [['label' => 'Decision', 'value' => 'Allowed (viewAny)']];
+        $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames()->all() : [];
+        $evidence[] = ['label' => 'Assigned roles', 'value' => $roles === [] ? 'None' : implode(', ', $roles)];
 
         if ($superAdminBypass) {
-            $evidence[] = 'The configured Shield super-admin role is assigned and its Gate before bypass is enabled.';
+            $evidence[] = ['label' => 'Super Admin', 'value' => 'Shield Gate bypass is configured for this role.'];
         }
 
-        if (method_exists($user, 'getRoleNames')) {
-            $roles = $user->getRoleNames()->all();
-            if ($roles !== []) {
-                $evidence[] = $this->formatEvidenceList('Assigned roles', $roles);
-            }
-        }
-
-        if (method_exists($user, 'getDirectPermissions')) {
-            $permissions = $user->getDirectPermissions()->pluck('name')->all();
-            if ($permissions !== []) {
-                $evidence[] = $this->formatEvidenceList('Direct permissions', $permissions);
-            }
-        }
-
-        if (method_exists($user, 'getPermissionsViaRoles')) {
-            $permissions = $user->getPermissionsViaRoles()->pluck('name')->all();
-            if ($permissions !== []) {
-                $evidence[] = $this->formatEvidenceList('Permissions through roles', $permissions);
-            }
+        if ($permission !== null) {
+            $evidence[] = ['label' => 'Expected permission', 'value' => $permission];
+            $direct = method_exists($user, 'getDirectPermissions')
+                && $user->getDirectPermissions()->contains('name', $permission);
+            $matchingRoles = method_exists($user, 'getRoleNames')
+                ? $user->roles->filter(fn ($role): bool => $role->permissions->contains('name', $permission))->pluck('name')->all()
+                : [];
+            $evidence[] = ['label' => 'Direct assignment', 'value' => $direct ? $permission : 'None matching'];
+            $evidence[] = ['label' => 'Matching roles', 'value' => $matchingRoles === [] ? 'None' : implode(', ', $matchingRoles)];
         }
 
         if ($decisionMessage !== '') {
-            $evidence[] = 'Authorization message: ' . $decisionMessage;
-        } else {
-            $evidence[] = 'The check result does not identify a single role or permission as the source.';
+            $evidence[] = ['label' => 'Policy message', 'value' => $decisionMessage];
         }
 
         return $evidence;
-    }
-
-    private function formatEvidenceList(string $label, array $values): string
-    {
-        $visible = array_slice($values, 0, 8);
-        $remaining = count($values) - count($visible);
-        $formatted = $label . ': ' . implode(', ', $visible);
-
-        return $formatted . ($remaining > 0 ? " and {$remaining} more." : '.');
     }
 
     private function unsupported(string $reason): array
