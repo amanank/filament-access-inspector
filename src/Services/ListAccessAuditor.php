@@ -11,6 +11,7 @@ use Filament\Resources\RelationManagers\RelationManagerConfiguration;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use ReflectionMethod;
 
 class ListAccessAuditor
@@ -32,7 +33,7 @@ class ListAccessAuditor
         }
 
         $cacheKey = implode(':', [
-            'filament-access-inspector',
+            'filament-access-inspector:v2',
             $panel?->getId() ?? 'panel',
             $resource,
             'viewAny',
@@ -63,10 +64,21 @@ class ListAccessAuditor
                 $decision = Gate::forUser($user)->inspect('viewAny', $resource::getModel());
 
                 if ($decision->allowed()) {
+                    $hasSuperAdminRole = method_exists($user, 'hasRole')
+                        && $user->hasRole(config('filament-shield.super_admin.name', 'super_admin'));
+                    $superAdminBypassConfigured = (bool) config('filament-shield.super_admin.enabled', false)
+                        && (bool) config('filament-shield.super_admin.define_via_gate', false)
+                        && config('filament-shield.super_admin.intercept_gate') === 'before';
+                    $message = trim((string) $decision->message());
+                    $reason = $hasSuperAdminRole && $superAdminBypassConfigured
+                        ? 'Super Admin bypass'
+                        : 'Access allowed - Source unknown';
+
                     $users[] = [
                         'id' => $user->getKey(),
                         'name' => $user->name ?? (string) $user->getKey(),
-                        'reason' => $decision->message() ?: 'Allowed by the Laravel viewAny authorization check.',
+                        'reason' => $reason,
+                        'evidence' => $this->accessEvidence($user, $resource::getModel(), $message, $hasSuperAdminRole && $superAdminBypassConfigured),
                     ];
                 }
             } catch (AuthorizationException $exception) {
@@ -113,14 +125,67 @@ class ListAccessAuditor
             ? $relation->relationManager
             : (is_string($relation) ? $relation : null);
 
-        $name = $class && class_exists($class) && method_exists($class, 'getTitle')
-            ? $class::getTitle()
-            : class_basename($class ?? 'Relation manager');
+        $name = class_basename($class ?? 'Relation manager');
+
+        if ($class && class_exists($class) && method_exists($class, 'getRelationshipName')) {
+            $relationshipName = $class::getRelationshipName();
+
+            if (filled($relationshipName)) {
+                $name = Str::headline($relationshipName);
+            }
+        }
 
         return [
             'name' => $name,
-            'limitation' => 'Relationship access is not evaluated in this version. Visibility and access may depend on the current user, parent record, tenant, or request context.',
+            'limitation' => 'Not evaluated',
         ];
+    }
+
+    private function accessEvidence(object $user, string $model, string $decisionMessage, bool $superAdminBypass): array
+    {
+        $evidence = ["Laravel Gate allowed viewAny for {$model}."];
+
+        if ($superAdminBypass) {
+            $evidence[] = 'The configured Shield super-admin role is assigned and its Gate before bypass is enabled.';
+        }
+
+        if (method_exists($user, 'getRoleNames')) {
+            $roles = $user->getRoleNames()->all();
+            if ($roles !== []) {
+                $evidence[] = $this->formatEvidenceList('Assigned roles', $roles);
+            }
+        }
+
+        if (method_exists($user, 'getDirectPermissions')) {
+            $permissions = $user->getDirectPermissions()->pluck('name')->all();
+            if ($permissions !== []) {
+                $evidence[] = $this->formatEvidenceList('Direct permissions', $permissions);
+            }
+        }
+
+        if (method_exists($user, 'getPermissionsViaRoles')) {
+            $permissions = $user->getPermissionsViaRoles()->pluck('name')->all();
+            if ($permissions !== []) {
+                $evidence[] = $this->formatEvidenceList('Permissions through roles', $permissions);
+            }
+        }
+
+        if ($decisionMessage !== '') {
+            $evidence[] = 'Authorization message: ' . $decisionMessage;
+        } else {
+            $evidence[] = 'The check result does not identify a single role or permission as the source.';
+        }
+
+        return $evidence;
+    }
+
+    private function formatEvidenceList(string $label, array $values): string
+    {
+        $visible = array_slice($values, 0, 8);
+        $remaining = count($values) - count($visible);
+        $formatted = $label . ': ' . implode(', ', $visible);
+
+        return $formatted . ($remaining > 0 ? " and {$remaining} more." : '.');
     }
 
     private function unsupported(string $reason): array

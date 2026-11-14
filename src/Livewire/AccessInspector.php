@@ -7,17 +7,23 @@ namespace Amanank\FilamentAccessInspector\Livewire;
 use Amanank\FilamentAccessInspector\Services\ListAccessAuditor;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
+use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class AccessInspector extends Component
 {
+    #[Locked]
     public ?string $pageClass = null;
 
-    public array $audit = ['status' => 'loading', 'users' => [], 'unknown' => [], 'relations' => [], 'audited_at' => null];
+    #[Locked]
+    public string $pageUrl = '';
 
     public function mount(): void
     {
+        $this->pageUrl = request()->url();
         $action = Route::current()?->getActionName() ?? '';
         $candidate = str_contains($action, '@') ? strstr($action, '@', true) : $action;
 
@@ -31,35 +37,44 @@ class AccessInspector extends Component
         $this->authorizeInspector();
 
         if (! $this->pageClass) {
-            $this->audit['status'] = 'unsupported';
-            $this->audit['unknown'] = [['name' => '', 'reason' => 'Access inspection is available on Filament resource List pages.']];
+            $this->renderAudit([
+                'status' => 'unsupported',
+                'users' => [],
+                'unknown' => [['name' => '', 'reason' => 'Access inspection is available on Filament resource List pages.']],
+                'relations' => [],
+                'audited_at' => null,
+            ]);
             return;
         }
 
         try {
-            $this->audit = app(ListAccessAuditor::class)->audit($this->pageClass);
+            $audit = app(ListAccessAuditor::class)->audit($this->pageClass);
         } catch (\Throwable $exception) {
             report($exception);
-            $this->audit = ['status' => 'failed', 'users' => [], 'unknown' => [['name' => '', 'reason' => 'The access audit failed. Check the application log for details.']], 'relations' => [], 'audited_at' => null];
+            $audit = ['status' => 'failed', 'users' => [], 'unknown' => [['name' => '', 'reason' => 'The access audit failed. Check the application log for details.']], 'relations' => [], 'audited_at' => null];
         }
+
+        $this->renderAudit($audit);
     }
 
+    #[On('access-inspector-recheck')]
     public function recheck(): void
     {
         $this->authorizeInspector();
 
         if (! $this->pageClass) {
+            $this->loadAudit();
             return;
         }
 
-        $this->audit = ['status' => 'loading', 'users' => [], 'unknown' => [], 'relations' => [], 'audited_at' => null];
-
         try {
-            $this->audit = app(ListAccessAuditor::class)->audit($this->pageClass, refresh: true);
+            $audit = app(ListAccessAuditor::class)->audit($this->pageClass, refresh: true);
         } catch (\Throwable $exception) {
             report($exception);
-            $this->audit = ['status' => 'failed', 'users' => [], 'unknown' => [['name' => '', 'reason' => 'The access audit failed. Check the application log for details.']], 'relations' => [], 'audited_at' => null];
+            $audit = ['status' => 'failed', 'users' => [], 'unknown' => [['name' => '', 'reason' => 'The access audit failed. Check the application log for details.']], 'relations' => [], 'audited_at' => null];
         }
+
+        $this->renderAudit($audit);
     }
 
     private function authorizeInspector(): void
@@ -76,6 +91,34 @@ class AccessInspector extends Component
         $resource = $this->pageClass::getResource();
 
         return $resource::getPluralModelLabel();
+    }
+
+    public function getInitials(string $name): string
+    {
+        return collect(preg_split('/\s+/u', trim($name)) ?: [])
+            ->filter()
+            ->take(2)
+            ->map(fn (string $part): string => mb_strtoupper(mb_substr($part, 0, 1)))
+            ->implode('');
+    }
+
+    private function renderAudit(array $audit): void
+    {
+        foreach ($audit['users'] as &$user) {
+            $user['initials'] = $this->getInitials($user['name']);
+        }
+        unset($user);
+
+        $resourceLabel = $this->getResourceLabel();
+        $auditedAt = $audit['audited_at']
+            ? Carbon::parse($audit['audited_at'])->timezone(config('app.timezone'))->format('H:i')
+            : null;
+
+        $html = view('filament-access-inspector::livewire.access-inspector-content', compact('audit', 'resourceLabel', 'auditedAt'))->render();
+
+        $this->skipRender();
+
+        $this->dispatch('access-inspector-result', html: $html, status: $audit['status'], pageUrl: $this->pageUrl);
     }
 
     public function render()

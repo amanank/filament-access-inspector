@@ -2,6 +2,8 @@
 
 A Filament 3 package for inspecting per-user `viewAny` authorization on resource List pages. The topbar shield appears before the user avatar for users allowed by the configured inspector permission. An audit starts after the page renders.
 
+The audit runs in a hidden Livewire component at the end of the page, outside Filament's persistent topbar. The shield stays disabled until the result arrives. The loader stores the rendered result in a hidden element and copies its HTML into the dropdown through a browser event. Refresh uses the same loader, so the dropdown stays open while its content updates. If no result arrives within 30 seconds, the dropdown offers a retry.
+
 ## Current scope
 
 - Supports resource List pages and evaluates each configured user through `Gate::forUser($user)->inspect('viewAny', $resourceModel)`.

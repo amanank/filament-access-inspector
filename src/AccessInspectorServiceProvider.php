@@ -30,5 +30,10 @@ class AccessInspectorServiceProvider extends ServiceProvider
             PanelsRenderHook::USER_MENU_BEFORE,
             fn (): string => view('filament-access-inspector::topbar')->render(),
         );
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::BODY_END,
+            fn (): string => view('filament-access-inspector::loader')->render(),
+        );
     }
 }
