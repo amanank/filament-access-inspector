@@ -33,7 +33,7 @@ class ListAccessAuditor
         }
 
         $cacheKey = implode(':', [
-            'filament-access-inspector:v3',
+            'filament-access-inspector:v5',
             $panel?->getId() ?? 'panel',
             $resource,
             'viewAny',
@@ -71,15 +71,13 @@ class ListAccessAuditor
                         && (bool) config('filament-shield.super_admin.define_via_gate', false)
                         && config('filament-shield.super_admin.intercept_gate') === 'before';
                     $message = trim((string) $decision->message());
-                    $reason = $hasSuperAdminRole && $superAdminBypassConfigured
-                        ? 'Super Admin bypass'
-                        : 'Access allowed - Source unknown';
+                    $explanation = $this->accessExplanation($user, $expectedPermission, $message, $hasSuperAdminRole && $superAdminBypassConfigured);
 
                     $users[] = [
                         'id' => $user->getKey(),
                         'name' => $user->name ?? (string) $user->getKey(),
-                        'reason' => $reason,
-                        'evidence' => $this->accessEvidence($user, $expectedPermission, $message, $hasSuperAdminRole && $superAdminBypassConfigured),
+                        'reason' => $explanation['reason'],
+                        'evidence' => $explanation['evidence'],
                     ];
                 }
             } catch (AuthorizationException $exception) {
@@ -158,7 +156,8 @@ class ListAccessAuditor
         return null;
     }
 
-    private function accessEvidence(object $user, ?string $permission, string $decisionMessage, bool $superAdminBypass): array
+    /** Matching assignments describe supporting evidence, not a Gate execution trace. */
+    private function accessExplanation(object $user, ?string $permission, string $decisionMessage, bool $superAdminBypass): array
     {
         $evidence = [['label' => 'Decision', 'value' => 'Allowed (viewAny)']];
         $roles = method_exists($user, 'getRoleNames') ? $user->getRoleNames()->all() : [];
@@ -167,6 +166,9 @@ class ListAccessAuditor
         if ($superAdminBypass) {
             $evidence[] = ['label' => 'Super Admin', 'value' => 'Shield Gate bypass is configured for this role.'];
         }
+
+        $direct = false;
+        $matchingRoles = [];
 
         if ($permission !== null) {
             $evidence[] = ['label' => 'Expected permission', 'value' => $permission];
@@ -183,7 +185,23 @@ class ListAccessAuditor
             $evidence[] = ['label' => 'Policy message', 'value' => $decisionMessage];
         }
 
-        return $evidence;
+        $roleSummary = null;
+        if ($matchingRoles !== []) {
+            $additionalRoles = count($matchingRoles) - 1;
+            $roleSummary = ($additionalRoles > 0 ? 'Matching roles: ' : 'Matching role: ')
+                . $matchingRoles[0]
+                . ($additionalRoles > 0 ? " +{$additionalRoles} more" : '');
+        }
+
+        $reason = match (true) {
+            $superAdminBypass => 'Super Admin bypass',
+            $direct && $roleSummary !== null => 'Direct permission; ' . lcfirst($roleSummary),
+            $direct => 'Direct permission present',
+            $roleSummary !== null => $roleSummary,
+            default => 'Access allowed - Source unknown',
+        };
+
+        return ['reason' => $reason, 'evidence' => $evidence];
     }
 
     private function unsupported(string $reason): array

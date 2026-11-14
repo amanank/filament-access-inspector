@@ -74,9 +74,10 @@
                         <div class="border-b border-gray-100 last:border-b-0 dark:border-white/5">
                             <button type="button" x-on:click.stop="toggleSection(@js($sectionKey))" x-bind:aria-expanded="activeSection === @js($sectionKey)" aria-controls="{{ $relationId }}"
                                 class="flex w-full items-center gap-3 p-3 text-start text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-white/5" style="gap: 0.75rem">
-                                <span class="h-4 w-4 flex-none" aria-hidden="true">
-                                    <x-filament::icon icon="heroicon-m-chevron-right" x-show="activeSection !== @js($sectionKey)" class="h-4 w-4 text-gray-400" />
-                                    <x-filament::icon icon="heroicon-m-chevron-down" x-cloak x-show="activeSection === @js($sectionKey)" class="h-4 w-4 text-gray-400" />
+                                <span class="inline-flex h-4 w-4 flex-none items-center justify-center" aria-hidden="true"
+                                    style="transition: transform 150ms ease"
+                                    x-bind:style="{ transform: activeSection === @js($sectionKey) ? 'rotate(90deg)' : 'rotate(0deg)' }">
+                                    <x-filament::icon icon="heroicon-m-chevron-right" class="h-4 w-4 text-gray-400" />
                                 </span>
                                 <span class="min-w-0 flex-1 truncate font-medium">{{ $relation['name'] }}</span>
                                 <span class="text-xs text-gray-400 dark:text-gray-500">{{ $relation['limitation'] }}</span>

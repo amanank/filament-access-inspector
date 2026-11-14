@@ -47,3 +47,5 @@ php artisan vendor:publish --tag=filament-access-inspector-config
 - `list_permissions`: optional resource class to permission name map for custom policies. By default, the Shield permission identifier is used with the `view_any_` prefix. These names filter supporting evidence; they do not determine the access result.
 
 The cache is separated by panel, resource, tenant, inspector, and user model. Use **Recheck now** to bypass it. Permission cache state is left untouched.
+
+User summaries show the first matching role by name, with "+N more" for additional matching roles. The evidence retains the complete list and any matching direct assignment. These summaries describe assignments supporting an allowed result; they do not prove which Gate or policy rule produced it. "Source unknown" is used when no matching assignment is found.
